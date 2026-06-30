@@ -113,7 +113,7 @@ class im2recipe(nn.Module):
         super(im2recipe, self).__init__()
         if opts.preModel=='resNet50':
         
-            resnet = models.resnet50(pretrained=True)
+            resnet = models.resnet50(weights='IMAGENET1K_V1')
             modules = list(resnet.children())[:-1]  # we do not use the last fc layer.
             self.visionMLP = nn.Sequential(*modules)
 

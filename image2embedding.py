@@ -58,7 +58,7 @@ def main():
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
     transform = transforms.Compose([
-                transforms.Scale(256), # rescale the image keeping the original aspect ratio
+                transforms.Resize(256), # rescale the image keeping the original aspect ratio
                 transforms.CenterCrop(224), # we get only the center of that rescaled
                 transforms.ToTensor(),
                 normalize])
