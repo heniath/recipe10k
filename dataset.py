@@ -126,8 +126,8 @@ class Recipe1MDataset(Dataset):
         self.num_classes = 1048
         
     def _get_image_path(self, img_id):
-        # Format: a/b/c/d/img_id
-        return os.path.join(self.image_dir, img_id[0], img_id[1], img_id[2], img_id[3], img_id)
+        # Assuming flat directory for the custom subset
+        return os.path.join(self.image_dir, img_id)
 
     def __len__(self):
         return len(self.data)
@@ -137,10 +137,7 @@ class Recipe1MDataset(Dataset):
         
         # 1. Image
         img_path = self._get_image_path(item['image_id'])
-        try:
-            img = Image.open(img_path).convert('RGB')
-        except:
-            img = Image.new('RGB', (224, 224), color='white')
+        img = Image.open(img_path).convert('RGB')
             
         if self.transform:
             img = self.transform(img)
