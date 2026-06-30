@@ -41,6 +41,7 @@ def train(args):
     train_loader, val_loader, instr_vocab, ingr_vocab = get_dataloaders(
         data_dir=args.data_dir,
         w2v_model=w2v_model,
+        img_dir=args.img_dir,
         batch_size=args.batch_size,
         num_workers=args.workers
     )
@@ -158,6 +159,7 @@ def train(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train Im2Recipe Model')
     parser.add_argument('--data_dir', type=str, required=True, help='Path to the dataset directory containing json files and images')
+    parser.add_argument('--img_dir', type=str, default=None, help='Path to the images directory, if separate from data_dir')
     parser.add_argument('--word2vec_path', type=str, required=True, help='Path to the vocab.bin file for ingredients')
     parser.add_argument('--epochs', type=int, default=10, help='Number of epochs to train')
     parser.add_argument('--batch_size', type=int, default=32, help='Batch size for training and validation')

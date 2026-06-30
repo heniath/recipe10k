@@ -67,7 +67,10 @@ def test_model(args):
             output = model(img.to(device), instr.to(device), instr_len.to(device), 
                            ingr.to(device), ingr_len.to(device))
             
-            visual_emb, recipe_emb, _, _ = output
+            if len(output) == 4:
+                visual_emb, recipe_emb, _, _ = output
+            else:
+                visual_emb, recipe_emb = output
             
             # L2 normalize embeddings before cosine similarity
             visual_emb = F.normalize(visual_emb, p=2, dim=1)

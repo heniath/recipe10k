@@ -59,12 +59,14 @@ class Recipe1MDataset(Dataset):
     """
     Actual Recipe1M dataset loader for the JSON subset.
     """
-    def __init__(self, data_dir, split='train', max_instr_len=20, max_ingr_len=20, 
+    def __init__(self, data_dir, img_dir=None, split='train', max_instr_len=20, max_ingr_len=20, 
                  instr_vocab=None, ingr_vocab=None, transform=None):
         self.data_dir = data_dir
         
+        if img_dir is not None and os.path.isdir(img_dir):
+            self.image_dir = img_dir
         # Check if images are zipped or in a folder
-        if os.path.isdir(os.path.join(data_dir, 'images', 'images')):
+        elif os.path.isdir(os.path.join(data_dir, 'images', 'images')):
             self.image_dir = os.path.join(data_dir, 'images', 'images')
         elif os.path.isdir(os.path.join(data_dir, 'images')):
             self.image_dir = os.path.join(data_dir, 'images')
@@ -198,7 +200,7 @@ class Recipe1MDataset(Dataset):
         return img, instr_tensor, instr_len, ingr_tensor, ingr_len, label
 
 
-def get_dataloaders(data_dir, w2v_model, batch_size=8, num_workers=2):
+def get_dataloaders(data_dir, w2v_model, img_dir=None, batch_size=8, num_workers=2):
     """
     Returns the train and val DataLoaders for Recipe1M, instruction vocab and ingredient vocab.
     """
@@ -221,12 +223,12 @@ def get_dataloaders(data_dir, w2v_model, batch_size=8, num_workers=2):
     ingr_vocab = IngredientVocabulary(w2v_model)
     
     print("Loading Train Dataset...")
-    train_dataset = Recipe1MDataset(data_dir=data_dir, split='train', 
+    train_dataset = Recipe1MDataset(data_dir=data_dir, img_dir=img_dir, split='train', 
                                     ingr_vocab=ingr_vocab, transform=transform_train)
     instr_vocab = train_dataset.instr_vocab
     
     print("Loading Val Dataset...")
-    val_dataset = Recipe1MDataset(data_dir=data_dir, split='val', 
+    val_dataset = Recipe1MDataset(data_dir=data_dir, img_dir=img_dir, split='val', 
                                   instr_vocab=instr_vocab, ingr_vocab=ingr_vocab, 
                                   transform=transform_val)
         

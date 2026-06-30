@@ -6,6 +6,34 @@ def l2_norm(input_tensor, p=2, dim=1, eps=1e-12):
     """L2 normalization for embeddings"""
     return input_tensor / input_tensor.norm(p, dim, keepdim=True).clamp(min=eps).expand_as(input_tensor)
 
+class CrossAttentionModule(nn.Module):
+    def __init__(self, dim1, dim2):
+        super(CrossAttentionModule, self).__init__()
+        self.q_proj1 = nn.Linear(dim1, dim1)
+        self.k_proj1 = nn.Linear(dim2, dim1)
+        self.v_proj1 = nn.Linear(dim2, dim1)
+        
+        self.q_proj2 = nn.Linear(dim2, dim2)
+        self.k_proj2 = nn.Linear(dim1, dim2)
+        self.v_proj2 = nn.Linear(dim1, dim2)
+        
+    def forward(self, x1, x2):
+        # x1 attends to x2
+        q1 = self.q_proj1(x1).unsqueeze(1)
+        k1 = self.k_proj1(x2).unsqueeze(1)
+        v1 = self.v_proj1(x2).unsqueeze(1)
+        attn1 = torch.softmax(torch.matmul(q1, k1.transpose(1, 2)) / (q1.size(-1)**0.5), dim=-1)
+        out1 = torch.matmul(attn1, v1).squeeze(1) + x1 # residual
+        
+        # x2 attends to x1
+        q2 = self.q_proj2(x2).unsqueeze(1)
+        k2 = self.k_proj2(x1).unsqueeze(1)
+        v2 = self.v_proj2(x1).unsqueeze(1)
+        attn2 = torch.softmax(torch.matmul(q2, k2.transpose(1, 2)) / (q2.size(-1)**0.5), dim=-1)
+        out2 = torch.matmul(attn2, v2).squeeze(1) + x2 # residual
+        
+        return torch.cat([out1, out2], dim=1)
+
 class InstructionEncoder(nn.Module):
     """
     Equivalent to stRNN in the original paper.
@@ -112,6 +140,8 @@ class Im2RecipeModel(nn.Module):
         # Ingredient Branch uses pre-trained weights
         self.ingredient_encoder = IngredientEncoder(pretrained_weights=ingr_pretrained_weights, embed_dim=300, hidden_size=300)
         
+        self.cross_attn = CrossAttentionModule(1024, 600)
+        
         # 1024 (stRNN) + 300*2 (ingRNN bi-LSTM) = 1624
         self.recipe_embedding = nn.Sequential(
             nn.Linear(1624, embed_dim),
@@ -134,7 +164,7 @@ class Im2RecipeModel(nn.Module):
         instr_out = self.instruction_encoder(instr, instr_lens)
         ingr_out = self.ingredient_encoder(ingr, ingr_lens)
         
-        recipe_feat = torch.cat([instr_out, ingr_out], dim=1)
+        recipe_feat = self.cross_attn(instr_out, ingr_out)
         
         recipe_emb = self.recipe_embedding(recipe_feat)
         recipe_emb = l2_norm(recipe_emb)
