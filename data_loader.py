@@ -9,12 +9,19 @@ import lmdb
 import torch
 
 def default_loader(path):
+    """Load an image, raising FileNotFoundError if it cannot be read."""
     try:
         im = Image.open(path).convert('RGB')
         return im
-    except:
-        print(f"Warning: could not load image at {path}", file=sys.stderr)
-        return Image.new('RGB', (224, 224), 'white')
+    except Exception as e:
+        raise FileNotFoundError(f"Could not load image at {path}") from e
+
+
+def _build_img_path(img_entry, img_root):
+    """Construct the filesystem path for a given image metadata entry."""
+    loader_path = [img_entry['id'][i] for i in range(4)]
+    loader_path = os.path.join(*loader_path)
+    return os.path.join(img_root, loader_path, img_entry['id'])
        
 class ImagerLoader(data.Dataset):
     def __init__(self, img_path, transform=None, target_transform=None,
@@ -65,20 +72,15 @@ class ImagerLoader(data.Dataset):
         sample = pickle.loads(serialized_sample,encoding='latin1')
         imgs = sample['imgs']
 
-        # image
+        # image — try candidate images in order, skipping missing ones
         if target == 1:
+            candidates = imgs[:min(5, len(imgs))] if self.partition == 'train' else [imgs[0]]
             if self.partition == 'train':
-                # We do only use the first five images per recipe during training
-                imgIdx = np.random.choice(range(min(5, len(imgs))))
-            else:
-                imgIdx = 0
-
-            loader_path = [imgs[imgIdx]['id'][i] for i in range(4)]
-            loader_path = os.path.join(*loader_path)
-            # path = os.path.join(self.imgPath, self.partition, loader_path, imgs[imgIdx]['id'])
-            path = os.path.join(self.imgPath, loader_path, imgs[imgIdx]['id'])
+                # Shuffle so we see variety across epochs
+                idxs = np.random.permutation(len(candidates))
+                candidates = [candidates[i] for i in idxs]
         else:
-            # we randomly pick one non-matching image
+            # we randomly pick one non-matching recipe
             all_idx = range(len(self.ids))
             rndindex = np.random.choice(all_idx)
             while rndindex == index:
@@ -87,19 +89,29 @@ class ImagerLoader(data.Dataset):
             with self.env.begin(write=False) as txn:
                 serialized_sample = txn.get(self.ids[rndindex].encode('latin1'))
 
-            rndsample = pickle.loads(serialized_sample,encoding='latin1')
+            rndsample = pickle.loads(serialized_sample, encoding='latin1')
             rndimgs = rndsample['imgs']
+            candidates = rndimgs[:min(5, len(rndimgs))] if self.partition == 'train' else [rndimgs[0]]
+            if self.partition == 'train':
+                idxs = np.random.permutation(len(candidates))
+                candidates = [candidates[i] for i in idxs]
 
-            if self.partition == 'train':  # if training we pick a random image
-                # We do only use the first five images per recipe during training
-                imgIdx = np.random.choice(range(min(5, len(rndimgs))))
-            else:
-                imgIdx = 0
+        img = None
+        path = None
+        for cand in candidates:
+            cand_path = _build_img_path(cand, self.imgPath)
+            try:
+                img = self.loader(cand_path)
+                path = cand_path
+                break
+            except FileNotFoundError:
+                continue
 
-            loader_path = [rndimgs[imgIdx]['id'][i] for i in range(4)]
-            loader_path = os.path.join(*loader_path)
-            path = os.path.join(self.imgPath, loader_path, rndimgs[imgIdx]['id'])
-            # path = self.imgPath + rndimgs[imgIdx]['id']
+        if img is None:
+            # All candidate images were missing — use a blank placeholder as last resort
+            print(f"Warning: no valid image found for recipe {recipId}, using blank placeholder.",
+                  file=sys.stderr)
+            img = Image.new('RGB', (224, 224), 'white')
 
         # instructions
         instrs = sample['intrs']
