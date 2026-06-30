@@ -45,6 +45,16 @@ def get_parser():
     parser.add_argument('--patience', default=1, type=int)
     parser.add_argument('--freeVision', default=False, type=bool)
     parser.add_argument('--freeRecipe', default=True, type=bool)
+
+    # --- Explicit per-group learning rates (new, recommended) ---
+    # When provided, these take priority over --lr * --freeVision/--freeRecipe
+    # and disable the automatic patience-based freeze/unfreeze toggle.
+    parser.add_argument('--base_lr', default=None, type=float,
+                        help='LR for all non-backbone params. Overrides --lr * --freeRecipe when set.')
+    parser.add_argument('--vision_lr', default=None, type=float,
+                        help='LR for the ResNet backbone (visionMLP). '
+                             '0.0 = frozen. Overrides --lr * --freeVision when set.')
+
     parser.add_argument('--cos_weight', default=0.98, type=float)
     parser.add_argument('--cls_weight', default=0.01, type=float)
     parser.add_argument('--resume', default='', type=str)

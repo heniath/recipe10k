@@ -6,12 +6,14 @@ Replaces the original mk_dataset.py pipeline by:
   1. Using sentence-transformers instead of skip-thought vectors (no .t7 files needed)
   2. Using gensim for Word2Vec training (no C compilation needed)
   3. Reading subset JSON files directly (no renaming required)
+  4. Filtering recipes to only those with physically-existing images on disk.
 
 Usage (from the scripts/ directory):
-    python mk_dataset_subset.py
+    python mk_dataset_subset.py --img_path /path/to/recipe1M+_images
 
 Or with custom paths:
     python mk_dataset_subset.py \
+        --img_path /path/to/recipe1M+_images \
         --layer1 ../data/layer1_subset.json \
         --layer2 ../data/layer2_subset.json \
         --det_ingrs ../data/det_ingrs.json \
@@ -52,6 +54,11 @@ def get_args():
     p.add_argument("--remove_ids", default="remove1M.txt",
                    help="Path to file with recipe IDs to exclude")
 
+    # Image root — required for existence filtering
+    p.add_argument("--img_path", required=True,
+                   help="Root directory of Recipe1M+ images in four-level folder format "
+                        "(e.g. /data/images/  ->  /data/images/3/e/2/3/3e23a9b850.jpg).")
+
     # Output
     p.add_argument("--output_dir", default="../data",
                    help="Directory where LMDBs, keys, and vocab files are written")
@@ -79,6 +86,39 @@ def get_args():
                    help="Batch size for sentence-transformer encoding")
 
     return p.parse_args()
+
+
+# ---------------------------------------------------------------------------
+# Image-path helpers
+# ---------------------------------------------------------------------------
+
+from pathlib import Path
+
+def image_path_from_id(img_id: str, image_root) -> Path:
+    """Build the 4-level filesystem path for a Recipe1M+ image.
+
+    Example:
+        img_id = '3e23a9b850.jpg'
+        -> <image_root>/3/e/2/3/3e23a9b850.jpg
+    """
+    stem = img_id  # keep the extension; index into the stem characters
+    return Path(image_root) / stem[0] / stem[1] / stem[2] / stem[3] / img_id
+
+
+def get_valid_images(recipe: dict, image_root) -> list:
+    """Return only the image dicts whose files physically exist on disk.
+
+    The returned list has the same dict schema as the input (id, url, …),
+    so the dataloader serialization format is unchanged.
+    """
+    valid = []
+    for img in recipe.get("images", []):
+        img_id = img.get("id")
+        if not img_id:
+            continue
+        if image_path_from_id(img_id, image_root).exists():
+            valid.append(img)
+    return valid
 
 
 # ---------------------------------------------------------------------------
@@ -327,13 +367,30 @@ def main():
     }
 
     keys = {"train": [], "val": [], "test": []}
-    num_skipped = 0
+    num_skipped = 0  # legacy total (kept for compat)
+
+    # Per-reason skip counters
+    n_skip_remove      = 0  # in remove_ids list
+    n_skip_no_image    = 0  # no physically existing image on disk
+    n_skip_text        = 0  # too long / no ingrs / no class / no encoding
+    n_skip_bad_part    = 0  # missing or unknown partition label
+    n_total            = 0  # total recipes examined
+    n_with_valid_image = 0  # recipes that have at least one valid image
 
     for entry in tqdm(dataset, desc="  Building LMDBs"):
         rid = entry["id"]
+        n_total += 1
 
         # Skip if in remove list
         if rid in remove_ids:
+            n_skip_remove += 1
+            num_skipped += 1
+            continue
+
+        # Validate partition label
+        partition = entry.get("partition")
+        if partition not in ("train", "val", "test"):
+            n_skip_bad_part += 1
             num_skipped += 1
             continue
 
@@ -344,23 +401,31 @@ def main():
         ingr_detections = detect_ingrs(entry, ingr_vocab)
         ningrs = len(ingr_detections)
 
-        # Get images
-        imgs = entry.get("images")
-
-        # Filter (same as original)
-        if ninstrs >= args.maxlen or ningrs >= args.maxlen or ningrs == 0 or not imgs:
+        # Filter text/class/encoding
+        if ninstrs >= args.maxlen or ningrs >= args.maxlen or ningrs == 0:
+            n_skip_text += 1
             num_skipped += 1
             continue
 
-        # Get class label
         if rid not in class_dict:
+            n_skip_text += 1
             num_skipped += 1
             continue
 
-        # Get instruction encodings
         if rid not in recipe_encs:
+            n_skip_text += 1
             num_skipped += 1
             continue
+
+        # --- Image existence filtering ---
+        all_imgs    = entry.get("images") or []
+        valid_imgs  = get_valid_images(entry, args.img_path)
+        if len(valid_imgs) == 0:
+            n_skip_no_image += 1
+            num_skipped += 1
+            continue
+
+        n_with_valid_image += 1
 
         # Build ingredient vector
         ingr_vec = np.zeros(args.maxlen, dtype="uint16")
@@ -369,14 +434,18 @@ def main():
         # Get instruction embeddings for this recipe
         intrs = recipe_encs[rid]
 
-        partition = entry["partition"]
+        # Store only the filtered (existing) image dicts — same list-of-dicts schema.
+        # Cap to max_imgs after filtering.
+        stored_imgs = valid_imgs[:args.max_imgs]
 
-        # Serialize sample (same format as original)
+        # Serialize sample (same format as original, with optional coverage metadata)
         serialized_sample = pickle.dumps({
             "ingrs": ingr_vec,
-            "intrs": intrs,  # shape: (n_instrs, st_dim) - same structure as skip-thoughts
+            "intrs": intrs,  # shape: (n_instrs, st_dim)
             "classes": class_dict[rid] + 1,
-            "imgs": imgs[:args.max_imgs],
+            "imgs": stored_imgs,          # only physically-existing image dicts
+            "original_img_count": len(all_imgs),   # informational
+            "valid_img_count": len(valid_imgs),    # informational
         })
 
         with envs[partition].begin(write=True) as txn:
@@ -394,11 +463,25 @@ def main():
         with open(keys_path, "wb") as f:
             pickle.dump(keys[part], f)
 
-    print(f"\n  Results:")
-    print(f"    Training samples:   {len(keys['train'])}")
-    print(f"    Validation samples: {len(keys['val'])}")
-    print(f"    Testing samples:    {len(keys['test'])}")
-    print(f"    Skipped:            {num_skipped}")
+    total_written = len(keys["train"]) + len(keys["val"]) + len(keys["test"])
+    img_coverage_pct = 100.0 * n_with_valid_image / n_total if n_total > 0 else 0.0
+
+    print(f"\n  ===== Preprocessing Summary =====")
+    print(f"  Total recipes examined           : {n_total}")
+    print(f"  Recipes with valid image(s)      : {n_with_valid_image} / {n_total} "
+          f"({img_coverage_pct:.2f}%)")
+    print(f"  Skipped – in remove_ids list     : {n_skip_remove}")
+    print(f"  Skipped – no valid image on disk : {n_skip_no_image}")
+    print(f"  Skipped – text/class/encoding    : {n_skip_text}")
+    print(f"  Skipped – bad/missing partition  : {n_skip_bad_part}")
+    print(f"  ─────────────────────────────────")
+    print(f"  Written to LMDB:")
+    print(f"    train : {len(keys['train'])}")
+    print(f"    val   : {len(keys['val'])}")
+    print(f"    test  : {len(keys['test'])}")
+    print(f"    total : {total_written}")
+    print(f"  Final image coverage             : 100.00% ✓")
+    print(f"  (All written samples have at least one physically-existing image.)")
     print()
 
     # ------------------------------------------------------------------

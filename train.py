@@ -60,15 +60,26 @@ def main():
     # Resolve the inner model (unwrap DataParallel if active)
     inner_model = model.module if isinstance(model, torch.nn.DataParallel) else model
 
-    # creating different parameter groups
-    vision_params = list(map(id, inner_model.visionMLP.parameters()))
-    base_params   = filter(lambda p: id(p) not in vision_params, model.parameters())
+    # ------------------------------------------------------------------
+    # Determine effective learning rates.
+    # New explicit flags (--base_lr / --vision_lr) take priority.
+    # Legacy flags (--lr * --freeRecipe / --freeVision) are the fallback.
+    # When either new flag is provided we are in "explicit LR mode" and the
+    # automatic patience-based freeze/unfreeze toggle is disabled.
+    # ------------------------------------------------------------------
+    _explicit_lr_mode = (opts.base_lr is not None) or (opts.vision_lr is not None)
+    effective_base_lr   = opts.base_lr   if opts.base_lr   is not None else opts.lr * float(opts.freeRecipe)
+    effective_vision_lr = opts.vision_lr if opts.vision_lr is not None else opts.lr * float(opts.freeVision)
 
-    # optimizer - with lr initialized accordingly
+    # Build separate parameter groups
+    vision_param_ids = {id(p) for p in inner_model.visionMLP.parameters()}
+    vision_params    = list(inner_model.visionMLP.parameters())
+    base_params      = [p for p in model.parameters() if id(p) not in vision_param_ids]
+
     optimizer = torch.optim.Adam([
-                {'params': base_params},
-                {'params': inner_model.visionMLP.parameters(), 'lr': opts.lr*opts.freeVision }
-            ], lr=opts.lr*opts.freeRecipe)
+        {'params': base_params,   'lr': effective_base_lr},
+        {'params': vision_params, 'lr': effective_vision_lr},
+    ])
 
     if opts.resume:
         if os.path.isfile(opts.resume):
@@ -90,8 +101,11 @@ def main():
     valtrack = 0
 
     print('There are %d parameter groups' % len(optimizer.param_groups))
-    print('Initial base params lr: %f' % optimizer.param_groups[0]['lr'])
-    print('Initial vision params lr: %f' % optimizer.param_groups[1]['lr'])
+    frozen_str = ' (backbone FROZEN)' if optimizer.param_groups[1]['lr'] == 0.0 else ''
+    mode_str   = 'explicit-LR mode' if _explicit_lr_mode else 'legacy freeVision/freeRecipe mode'
+    print(f'=> LR mode          : {mode_str}')
+    print(f'=> base_lr          : {optimizer.param_groups[0]["lr"]:.6f}')
+    print(f'=> vision_backbone_lr: {optimizer.param_groups[1]["lr"]:.6f}{frozen_str}')
 
     # data preparation, loaders
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
@@ -143,10 +157,15 @@ def main():
             else:
                 valtrack = 0
             if valtrack >= opts.patience:
-                # we switch modalities
-                opts.freeVision = opts.freeRecipe; opts.freeRecipe = not(opts.freeVision)
-                # change the learning rate accordingly
-                adjust_learning_rate(optimizer, epoch, opts) 
+                if _explicit_lr_mode:
+                    # Explicit LR mode: do NOT auto-flip vision/recipe freeze.
+                    # The user has pinned vision_lr and base_lr; honour them.
+                    print('Patience exceeded but explicit LR mode is active — '
+                          'skipping automatic freeze/unfreeze toggle.')
+                else:
+                    # Legacy mode: switch modalities as before.
+                    opts.freeVision = opts.freeRecipe; opts.freeRecipe = not(opts.freeVision)
+                    adjust_learning_rate(optimizer, epoch, opts)
                 valtrack = 0
 
             # save the best model
@@ -237,16 +256,16 @@ def train(train_loader, model, criterion, optimizer, epoch):
                   'cos loss {cos_loss.val:.4f} ({cos_loss.avg:.4f})\t'
                   'img Loss {img_loss.val:.4f} ({img_loss.avg:.4f})\t'
                   'rec loss {rec_loss.val:.4f} ({rec_loss.avg:.4f})\t'
-                  'vision ({visionLR}) - recipe ({recipeLR})\t'.format(
+                  'vision_backbone_lr ({visionLR}) - base_lr ({recipeLR})\t'.format(
                    epoch, cos_loss=cos_losses, img_loss=img_losses,
                    rec_loss=rec_losses, visionLR=optimizer.param_groups[1]['lr'],
                    recipeLR=optimizer.param_groups[0]['lr']))
     else:
          print('Epoch: {0}\t'
                   'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
-                  'vision ({visionLR}) - recipe ({recipeLR})\t'.format(
+                  'vision_backbone_lr ({visionLR}) - base_lr ({recipeLR})\t'.format(
                    epoch, loss=cos_losses, visionLR=optimizer.param_groups[1]['lr'],
-                   recipeLR=optimizer.param_groups[0]['lr']))                 
+                   recipeLR=optimizer.param_groups[0]['lr']))
 
 def validate(val_loader, model, criterion):
     batch_time = AverageMeter()
@@ -387,14 +406,14 @@ class AverageMeter(object):
         self.avg = self.sum / self.count
 
 def adjust_learning_rate(optimizer, epoch, opts):
-    """Switching between modalities"""
+    """Legacy modality-switching helper (only called in legacy freeVision/freeRecipe mode)."""
     # parameters corresponding to the rest of the network
-    optimizer.param_groups[0]['lr'] = opts.lr * opts.freeRecipe
-    # parameters corresponding to visionMLP 
-    optimizer.param_groups[1]['lr'] = opts.lr * opts.freeVision 
+    optimizer.param_groups[0]['lr'] = opts.lr * float(opts.freeRecipe)
+    # parameters corresponding to visionMLP
+    optimizer.param_groups[1]['lr'] = opts.lr * float(opts.freeVision)
 
-    print('Initial base params lr: %f' % optimizer.param_groups[0]['lr'])
-    print('Initial vision lr: %f' % optimizer.param_groups[1]['lr'])
+    print(f'  base_lr          : {optimizer.param_groups[0]["lr"]:.6f}')
+    print(f'  vision_backbone_lr: {optimizer.param_groups[1]["lr"]:.6f}')
 
     # after first modality change we set patience to 3
     opts.patience = 3

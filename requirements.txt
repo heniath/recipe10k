@@ -11,3 +11,6 @@ torch
 torchvision
 gensim
 sentence-transformers
+# RecipeCLIP-10K additions
+open_clip_torch
+pyyaml
