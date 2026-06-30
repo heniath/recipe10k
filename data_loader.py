@@ -79,7 +79,7 @@ class ImagerLoader(data.Dataset):
 
             # image — try candidate images in order, skipping missing ones
             if target == 1:
-                candidates = imgs[:min(5, len(imgs))] if self.partition == 'train' else [imgs[0]]
+                candidates = imgs[:min(5, len(imgs))]
                 if self.partition == 'train':
                     # Shuffle so we see variety across epochs
                     idxs = np.random.permutation(len(candidates))
@@ -96,7 +96,7 @@ class ImagerLoader(data.Dataset):
 
                 rndsample = pickle.loads(serialized_sample, encoding='latin1')
                 rndimgs = rndsample['imgs']
-                candidates = rndimgs[:min(5, len(rndimgs))] if self.partition == 'train' else [rndimgs[0]]
+                candidates = rndimgs[:min(5, len(rndimgs))]
                 if self.partition == 'train':
                     idxs = np.random.permutation(len(candidates))
                     candidates = [candidates[i] for i in idxs]

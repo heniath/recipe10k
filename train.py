@@ -301,8 +301,8 @@ def rank(opts, img_embeds, rec_embeds, rec_ids):
     idxs = np.argsort(names)
     names = names[idxs]
 
-    # Ranker
-    N = opts.medr
+    # Ranker — clamp N to available samples to avoid ValueError on small val sets
+    N = min(opts.medr, len(names))
     idxs = range(N)
 
     glob_rank = []
