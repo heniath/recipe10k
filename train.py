@@ -364,7 +364,8 @@ def rank(opts, img_embeds, rec_embeds, rec_ids):
 
 def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
 
-    filename = opts.snapshots + 'model_e%03d_v-%.3f.pth.tar' % (state['epoch'],state['best_val']) 
+    os.makedirs(opts.snapshots, exist_ok=True)
+    filename = os.path.join(opts.snapshots, 'model_e%03d_v-%.3f.pth.tar' % (state['epoch'],state['best_val']))
     if is_best:
         torch.save(state, filename)
 

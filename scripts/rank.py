@@ -29,8 +29,8 @@ with open(os.path.join(opts.path_results,'rec_ids.pkl'),'rb') as f:
 idxs = np.argsort(names)
 names = names[idxs]
 
-# Ranker
-N = opts.medr
+# Ranker — clamp N to available samples to avoid ValueError on small sets
+N = min(opts.medr, len(names))
 idxs = range(N)
 
 glob_rank = []

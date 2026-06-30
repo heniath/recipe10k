@@ -141,13 +141,14 @@ def test(test_loader, model, criterion):
     else:
         print('* Test loss {losses.avg:.4f}'.format(losses=cos_losses))
 
-    with open(opts.path_results+'img_embeds.pkl', 'wb') as f:
+    os.makedirs(opts.path_results, exist_ok=True)
+    with open(os.path.join(opts.path_results, 'img_embeds.pkl'), 'wb') as f:
         pickle.dump(data0, f)
-    with open(opts.path_results+'rec_embeds.pkl', 'wb') as f:
+    with open(os.path.join(opts.path_results, 'rec_embeds.pkl'), 'wb') as f:
         pickle.dump(data1, f)
-    with open(opts.path_results+'img_ids.pkl', 'wb') as f:
+    with open(os.path.join(opts.path_results, 'img_ids.pkl'), 'wb') as f:
         pickle.dump(data2, f)
-    with open(opts.path_results+'rec_ids.pkl', 'wb') as f:
+    with open(os.path.join(opts.path_results, 'rec_ids.pkl'), 'wb') as f:
         pickle.dump(data3, f)
 
     return cos_losses.avg
