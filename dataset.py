@@ -114,7 +114,8 @@ class Recipe1MDataset(Dataset):
             if item['id'] in self.ids and item['id'] in layer2_dict:
                 images = layer2_dict[item['id']].get('images', [])
                 if images:
-                    item['image_id'] = images[0]['id'] if isinstance(images[0], dict) else images[0]
+                    # Store all available image IDs for this recipe
+                    item['image_ids'] = [img['id'] if isinstance(img, dict) else img for img in images]
                     self.data.append(item)
                     
         print(f"[{split}] Loaded {len(self.data)} recipes.")
@@ -139,15 +140,23 @@ class Recipe1MDataset(Dataset):
         while True:
             item = self.data[idx]
             
-            # 1. Image
-            img_path = self._get_image_path(item['image_id'])
-            try:
-                img = Image.open(img_path).convert('RGB')
-                break  # Successfully loaded image
-            except FileNotFoundError:
-                # The image file is missing from the dataset physically.
-                # Randomly pick another index to use instead of crashing or using a blank image.
-                idx = torch.randint(0, len(self.data), (1,)).item()
+            # Try all available images for this recipe
+            img = None
+            for img_id in item.get('image_ids', []):
+                img_path = self._get_image_path(img_id)
+                try:
+                    img = Image.open(img_path).convert('RGB')
+                    break  # Successfully loaded an image!
+                except Exception:
+                    # Catch FileNotFoundError, UnidentifiedImageError, etc.
+                    continue
+            
+            if img is not None:
+                break # We found a valid image for this recipe
+                
+            # The image files are missing or corrupt for this entire recipe.
+            # Randomly pick another index to use instead of crashing.
+            idx = torch.randint(0, len(self.data), (1,)).item()
             
         if self.transform:
             img = self.transform(img)
