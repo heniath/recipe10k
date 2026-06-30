@@ -64,7 +64,9 @@ class Recipe1MDataset(Dataset):
         self.data_dir = data_dir
         
         # Check if images are zipped or in a folder
-        if os.path.isdir(os.path.join(data_dir, 'images')):
+        if os.path.isdir(os.path.join(data_dir, 'images', 'images')):
+            self.image_dir = os.path.join(data_dir, 'images', 'images')
+        elif os.path.isdir(os.path.join(data_dir, 'images')):
             self.image_dir = os.path.join(data_dir, 'images')
         elif os.path.isdir(os.path.join(data_dir, 'images_subset')):
             self.image_dir = os.path.join(data_dir, 'images_subset')
@@ -126,8 +128,8 @@ class Recipe1MDataset(Dataset):
         self.num_classes = 1048
         
     def _get_image_path(self, img_id):
-        # Assuming flat directory for the custom subset
-        return os.path.join(self.image_dir, img_id)
+        # Format: a/b/c/d/img_id
+        return os.path.join(self.image_dir, img_id[0], img_id[1], img_id[2], img_id[3], img_id)
 
     def __len__(self):
         return len(self.data)
