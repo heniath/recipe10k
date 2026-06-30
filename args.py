@@ -22,7 +22,7 @@ def get_parser():
     parser.add_argument('--srnnDim', default=1024, type=int)
     parser.add_argument('--irnnDim', default=300, type=int)
     parser.add_argument('--imfeatDim', default=2048, type=int)
-    parser.add_argument('--stDim', default=1024, type=int)
+    parser.add_argument('--stDim', default=384, type=int)  # 384 for all-MiniLM-L6-v2, 1024 for skip-thoughts
     parser.add_argument('--ingrW2VDim', default=300, type=int)
     parser.add_argument('--maxSeqlen', default=20, type=int)
     parser.add_argument('--maxIngrs', default=20, type=int)

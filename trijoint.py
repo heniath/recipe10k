@@ -6,8 +6,22 @@ import torch.utils.data
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
-import torchwordemb
 from args import get_parser
+
+def load_word2vec_bin(path):
+    """Load word2vec binary file. Tries torchwordemb first, falls back to gensim."""
+    try:
+        import torchwordemb
+        vocab, vec = torchwordemb.load_word2vec_bin(path)
+        return vocab, vec
+    except ImportError:
+        pass
+    # Fallback: use gensim to load word2vec binary format
+    from gensim.models import KeyedVectors
+    wv = KeyedVectors.load_word2vec_format(path, binary=True)
+    vocab = {word: i for i, word in enumerate(wv.index_to_key)}
+    vec = torch.FloatTensor(wv.vectors)
+    return vocab, vec
 
 # =============================================================================
 parser = get_parser()
@@ -61,7 +75,7 @@ class ingRNN(nn.Module):
     def __init__(self):
         super(ingRNN, self).__init__()
         self.irnn = nn.LSTM(input_size=opts.ingrW2VDim, hidden_size=opts.irnnDim, bidirectional=True, batch_first=True)
-        _, vec = torchwordemb.load_word2vec_bin(opts.ingrW2V)
+        _, vec = load_word2vec_bin(opts.ingrW2V)
         self.embs = nn.Embedding(vec.size(0), opts.ingrW2VDim, padding_idx=0) # not sure about the padding idx 
         self.embs.weight.data.copy_(vec)
 
