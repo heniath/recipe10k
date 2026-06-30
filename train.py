@@ -1,4 +1,5 @@
 import os
+from tqdm import tqdm
 import time
 import random
 import numpy as np
@@ -177,7 +178,8 @@ def train(train_loader, model, criterion, optimizer, epoch):
     model.train()
 
     end = time.time()
-    for i, (input, target) in enumerate(train_loader):
+    pbar = tqdm(train_loader, desc=f'Epoch [{epoch}] Train', leave=True, dynamic_ncols=True)
+    for i, (input, target) in enumerate(pbar):
 
         # measure data loading time
         data_time.update(time.time() - end)
@@ -210,10 +212,16 @@ def train(train_loader, model, criterion, optimizer, epoch):
             cos_losses.update(cos_loss.data, input[0].size(0))
             img_losses.update(img_loss.data, input[0].size(0))
             rec_losses.update(rec_loss.data, input[0].size(0))
+            pbar.set_postfix({
+                'cos': f'{cos_losses.val:.4f}({cos_losses.avg:.4f})',
+                'img': f'{img_losses.val:.4f}({img_losses.avg:.4f})',
+                'rec': f'{rec_losses.val:.4f}({rec_losses.avg:.4f})',
+            })
         else:
             loss = criterion(output[0], output[1], target_var[0])
             # measure performance and record loss
             cos_losses.update(loss.data[0], input[0].size(0))
+            pbar.set_postfix({'loss': f'{cos_losses.val:.4f}({cos_losses.avg:.4f})'})
 
         # compute gradient and do Adam step
         optimizer.zero_grad()
@@ -251,7 +259,8 @@ def validate(val_loader, model, criterion):
     model.eval()
 
     end = time.time()
-    for i, (input, target) in enumerate(val_loader):
+    pbar = tqdm(val_loader, desc='Validating', leave=True, dynamic_ncols=True)
+    for i, (input, target) in enumerate(pbar):
         input_var = list() 
         for j in range(len(input)):
             # input_var.append(torch.autograd.Variable(input[j], volatile=True).cuda())
