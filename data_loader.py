@@ -13,7 +13,7 @@ def default_loader(path):
         im = Image.open(path).convert('RGB')
         return im
     except:
-        print(..., file=sys.stderr)
+        print(f"Warning: could not load image at {path}", file=sys.stderr)
         return Image.new('RGB', (224, 224), 'white')
        
 class ImagerLoader(data.Dataset):
