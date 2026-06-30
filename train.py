@@ -144,7 +144,7 @@ def train(args):
         epoch_time = time.time() - start_time
         
         print(f"--- Epoch {epoch+1} Completed in {epoch_time:.2f}s ---")
-        print(f"Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f}\\n")
+        print(f"Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f}\n")
         
         # Save Best Model
         if avg_val_loss < best_val_loss:
