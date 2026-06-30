@@ -135,11 +135,19 @@ class Recipe1MDataset(Dataset):
         return len(self.data)
 
     def __getitem__(self, idx):
-        item = self.data[idx]
-        
-        # 1. Image
-        img_path = self._get_image_path(item['image_id'])
-        img = Image.open(img_path).convert('RGB')
+        # Use a while loop to handle missing images in incomplete datasets
+        while True:
+            item = self.data[idx]
+            
+            # 1. Image
+            img_path = self._get_image_path(item['image_id'])
+            try:
+                img = Image.open(img_path).convert('RGB')
+                break  # Successfully loaded image
+            except FileNotFoundError:
+                # The image file is missing from the dataset physically.
+                # Randomly pick another index to use instead of crashing or using a blank image.
+                idx = torch.randint(0, len(self.data), (1,)).item()
             
         if self.transform:
             img = self.transform(img)
