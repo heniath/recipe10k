@@ -16,17 +16,32 @@ def test_model(args):
     if not os.path.exists(args.weights_path):
         raise FileNotFoundError(f"Could not find model weights at {args.weights_path}")
         
-    print("Loading vocab and dataloader (Val split)...")
+    from dataset import get_dataloaders, Recipe1MDataset
+    import torchvision.transforms as transforms
+    from torch.utils.data import DataLoader
+    
+    print("Loading vocab from training dataset...")
     w2v_model, pretrained_weights = load_word2vec_weights(args.word2vec_path)
     
-    # We use get_dataloaders which currently only returns train and val loaders.
-    # We will use the val_loader for evaluation.
-    _, val_loader, instr_vocab, _ = get_dataloaders(
+    # We need the vocabs built from the training set
+    _, _, instr_vocab, ingr_vocab = get_dataloaders(
         data_dir=args.data_dir,
         w2v_model=w2v_model,
         batch_size=args.batch_size,
         num_workers=args.workers
     )
+    
+    print("Loading Test Dataset...")
+    transform_test = transforms.Compose([
+        transforms.Resize(256),
+        transforms.CenterCrop(224),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    ])
+    test_dataset = Recipe1MDataset(data_dir=args.data_dir, split='test', 
+                                  instr_vocab=instr_vocab, ingr_vocab=ingr_vocab, 
+                                  transform=transform_test)
+    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.workers)
     
     print("Initializing model...")
     model = Im2RecipeModel(
@@ -45,7 +60,7 @@ def test_model(args):
     img_embs, rec_embs = [], []
     
     with torch.no_grad():
-        pbar = tqdm(val_loader, desc=f"Extracting features for {args.num_samples} samples")
+        pbar = tqdm(test_loader, desc=f"Extracting features for {args.num_samples} samples")
         for batch in pbar:
             img, instr, instr_len, ingr, ingr_len, _ = batch
             
@@ -61,7 +76,7 @@ def test_model(args):
             img_embs.append(visual_emb.cpu())
             rec_embs.append(recipe_emb.cpu())
             
-            if len(img_embs) * val_loader.batch_size >= args.num_samples:
+            if len(img_embs) * test_loader.batch_size >= args.num_samples:
                 break
                 
     img_embs = torch.cat(img_embs, dim=0)[:args.num_samples]
