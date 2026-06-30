@@ -126,7 +126,7 @@ class ImagerLoader(data.Dataset):
         igr_ln = max(np.nonzero(sample['ingrs'])[0]) + 1
 
         # load image
-        img = self.loader(path)
+        # (image is already loaded above)
 
         if self.square:
             img = img.resize(self.square)
