@@ -11,8 +11,11 @@ import torch
 def default_loader(path):
     """Load an image, raising FileNotFoundError if it cannot be read."""
     try:
-        im = Image.open(path).convert('RGB')
-        return im
+        im = Image.open(path)
+        # Handle palette images with transparency properly to avoid UserWarning
+        if im.mode == 'P' and 'transparency' in im.info:
+            im = im.convert('RGBA')
+        return im.convert('RGB')
     except Exception as e:
         raise FileNotFoundError(f"Could not load image at {path}") from e
 
@@ -56,62 +59,68 @@ class ImagerLoader(data.Dataset):
         self.loader = loader
 
     def __getitem__(self, index):
-        recipId = self.ids[index]
-        # we force 80 percent of them to be a mismatch
-        if self.partition == 'train':
-            match = np.random.uniform() > self.mismtch
-        elif self.partition == 'val' or self.partition == 'test':
-            match = True
-        else:
-            raise 'Partition name not well defined'
-
-        target = match and 1 or -1
-
-        with self.env.begin(write=False) as txn:
-            serialized_sample = txn.get(self.ids[index].encode('latin1'))
-        sample = pickle.loads(serialized_sample,encoding='latin1')
-        imgs = sample['imgs']
-
-        # image — try candidate images in order, skipping missing ones
-        if target == 1:
-            candidates = imgs[:min(5, len(imgs))] if self.partition == 'train' else [imgs[0]]
+        img = None
+        while img is None:
+            recipId = self.ids[index]
+            # we force 80 percent of them to be a mismatch
             if self.partition == 'train':
-                # Shuffle so we see variety across epochs
-                idxs = np.random.permutation(len(candidates))
-                candidates = [candidates[i] for i in idxs]
-        else:
-            # we randomly pick one non-matching recipe
-            all_idx = range(len(self.ids))
-            rndindex = np.random.choice(all_idx)
-            while rndindex == index:
-                rndindex = np.random.choice(all_idx)  # pick a random index
+                match = np.random.uniform() > self.mismtch
+            elif self.partition == 'val' or self.partition == 'test':
+                match = True
+            else:
+                raise 'Partition name not well defined'
+
+            target = match and 1 or -1
 
             with self.env.begin(write=False) as txn:
-                serialized_sample = txn.get(self.ids[rndindex].encode('latin1'))
+                serialized_sample = txn.get(self.ids[index].encode('latin1'))
+            sample = pickle.loads(serialized_sample,encoding='latin1')
+            imgs = sample['imgs']
 
-            rndsample = pickle.loads(serialized_sample, encoding='latin1')
-            rndimgs = rndsample['imgs']
-            candidates = rndimgs[:min(5, len(rndimgs))] if self.partition == 'train' else [rndimgs[0]]
-            if self.partition == 'train':
-                idxs = np.random.permutation(len(candidates))
-                candidates = [candidates[i] for i in idxs]
+            # image — try candidate images in order, skipping missing ones
+            if target == 1:
+                candidates = imgs[:min(5, len(imgs))] if self.partition == 'train' else [imgs[0]]
+                if self.partition == 'train':
+                    # Shuffle so we see variety across epochs
+                    idxs = np.random.permutation(len(candidates))
+                    candidates = [candidates[i] for i in idxs]
+            else:
+                # we randomly pick one non-matching recipe
+                all_idx = range(len(self.ids))
+                rndindex = np.random.choice(all_idx)
+                while rndindex == index:
+                    rndindex = np.random.choice(all_idx)  # pick a random index
 
-        img = None
-        path = None
-        for cand in candidates:
-            cand_path = _build_img_path(cand, self.imgPath)
-            try:
-                img = self.loader(cand_path)
-                path = cand_path
-                break
-            except FileNotFoundError:
-                continue
+                with self.env.begin(write=False) as txn:
+                    serialized_sample = txn.get(self.ids[rndindex].encode('latin1'))
 
-        if img is None:
-            # All candidate images were missing — use a blank placeholder as last resort
-            print(f"Warning: no valid image found for recipe {recipId}, using blank placeholder.",
-                  file=sys.stderr)
-            img = Image.new('RGB', (224, 224), 'white')
+                rndsample = pickle.loads(serialized_sample, encoding='latin1')
+                rndimgs = rndsample['imgs']
+                candidates = rndimgs[:min(5, len(rndimgs))] if self.partition == 'train' else [rndimgs[0]]
+                if self.partition == 'train':
+                    idxs = np.random.permutation(len(candidates))
+                    candidates = [candidates[i] for i in idxs]
+
+            path = None
+            for cand in candidates:
+                cand_path = _build_img_path(cand, self.imgPath)
+                try:
+                    img = self.loader(cand_path)
+                    path = cand_path
+                    break
+                except FileNotFoundError:
+                    continue
+
+            if img is None:
+                if self.partition == 'train':
+                    # Resample a new random recipe instead of using a blank placeholder during training
+                    index = np.random.randint(0, len(self.ids))
+                else:
+                    # All candidate images were missing — use a blank placeholder as last resort
+                    print(f"Warning: no valid image found for recipe {recipId}, using blank placeholder.",
+                          file=sys.stderr)
+                    img = Image.new('RGB', (224, 224), 'white')
+                    break
 
         # instructions
         instrs = sample['intrs']
