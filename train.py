@@ -20,17 +20,28 @@ parser = get_parser()
 opts = parser.parse_args()
 # =============================================================================
 
-if not(torch.cuda.device_count()):
-    device = torch.device(*('cpu',0))
-else:
+# Honour explicit GPU selection before any CUDA initialisation
+if opts.gpu_ids:
+    os.environ['CUDA_VISIBLE_DEVICES'] = opts.gpu_ids
+
+# Device & multi-GPU setup
+if torch.cuda.is_available():
     torch.cuda.manual_seed(opts.seed)
-    device = torch.device(*('cuda',0))
+    device = torch.device('cuda')
+    num_gpus = torch.cuda.device_count()
+else:
+    device = torch.device('cpu')
+    num_gpus = 0
 
 def main():
 
     model = im2recipe()
-    model.visionMLP = torch.nn.DataParallel(model.visionMLP)
     model.to(device)
+    if num_gpus > 1:
+        print(f'=> Using {num_gpus} GPUs via DataParallel: {list(range(num_gpus))}')
+        model = torch.nn.DataParallel(model)
+    else:
+        print(f'=> Using {"GPU 0" if num_gpus == 1 else "CPU"}')
 
     # define loss function (criterion) and optimizer
     # cosine similarity between embeddings -> input1, input2, target
@@ -45,14 +56,17 @@ def main():
     else:
         criterion = cosine_crit
 
-    # # creating different parameter groups
-    vision_params = list(map(id, model.visionMLP.parameters()))
+    # Resolve the inner model (unwrap DataParallel if active)
+    inner_model = model.module if isinstance(model, torch.nn.DataParallel) else model
+
+    # creating different parameter groups
+    vision_params = list(map(id, inner_model.visionMLP.parameters()))
     base_params   = filter(lambda p: id(p) not in vision_params, model.parameters())
-   
+
     # optimizer - with lr initialized accordingly
     optimizer = torch.optim.Adam([
                 {'params': base_params},
-                {'params': model.visionMLP.parameters(), 'lr': opts.lr*opts.freeVision }
+                {'params': inner_model.visionMLP.parameters(), 'lr': opts.lr*opts.freeVision }
             ], lr=opts.lr*opts.freeRecipe)
 
     if opts.resume:

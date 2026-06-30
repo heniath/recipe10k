@@ -6,6 +6,8 @@ def get_parser():
     # general
     parser.add_argument('--seed', default=1234, type=int)
     parser.add_argument('--no-cuda', action='store_true')
+    parser.add_argument('--gpu_ids', default='', type=str,
+                        help='Comma-separated GPU IDs to use, e.g. "0,1". Empty = all visible GPUs.')
 
     # data
     parser.add_argument('--img_path', default='data/images/')
