@@ -89,7 +89,12 @@ class Recipe1MDataset(Dataset):
             
         # Load Layer 1 and 2
         l1_path = os.path.join(data_dir, 'layer1_subset.json')
+        if not os.path.exists(l1_path):
+            l1_path = os.path.join(data_dir, 'layer1_subset (1).json')
+            
         l2_path = os.path.join(data_dir, 'layer2_subset.json')
+        if not os.path.exists(l2_path):
+            l2_path = os.path.join(data_dir, 'layer2_subset (1).json')
         
         if not os.path.exists(l1_path) or not os.path.exists(l2_path):
             raise FileNotFoundError(f"Missing layer1 or layer2 json files in {data_dir}")
