@@ -88,22 +88,41 @@ def test_model(args):
     num_samples_extracted = img_embs.size(0)
     print(f"Calculating Similarity Matrix for {num_samples_extracted} pairs...")
     
-    sims = torch.matmul(img_embs, rec_embs.t())
+    # 1. Image-to-Recipe (im2recipe)
+    sims_i2r = torch.matmul(img_embs, rec_embs.t())
     
-    ranks = []
+    ranks_i2r = []
     for i in range(num_samples_extracted):
-        d = torch.argsort(sims[i], descending=True)
+        d = torch.argsort(sims_i2r[i], descending=True)
         rank = (d == i).nonzero(as_tuple=True)[0].item()
-        ranks.append(rank + 1)
+        ranks_i2r.append(rank + 1)
         
-    ranks = np.array(ranks)
+    ranks_i2r = np.array(ranks_i2r)
     print("\n" + "="*40)
-    print(" TEST RESULTS: IMAGE-TO-RECIPE RETRIEVAL ")
+    print(" TEST RESULTS: IMAGE-TO-RECIPE (im2recipe) ")
     print("="*40)
-    print(f" Median Rank (MedR) : {np.median(ranks):.1f}")
-    print(f" Recall@1  (R@1)    : {100.0 * len(ranks[ranks <= 1]) / num_samples_extracted:.2f}%")
-    print(f" Recall@5  (R@5)    : {100.0 * len(ranks[ranks <= 5]) / num_samples_extracted:.2f}%")
-    print(f" Recall@10 (R@10)   : {100.0 * len(ranks[ranks <= 10]) / num_samples_extracted:.2f}%")
+    print(f" Median Rank (MedR) : {np.median(ranks_i2r):.1f}")
+    print(f" Recall@1  (R@1)    : {100.0 * len(ranks_i2r[ranks_i2r <= 1]) / num_samples_extracted:.2f}%")
+    print(f" Recall@5  (R@5)    : {100.0 * len(ranks_i2r[ranks_i2r <= 5]) / num_samples_extracted:.2f}%")
+    print(f" Recall@10 (R@10)   : {100.0 * len(ranks_i2r[ranks_i2r <= 10]) / num_samples_extracted:.2f}%")
+
+    # 2. Recipe-to-Image (recipe2im)
+    sims_r2i = sims_i2r.t()
+    
+    ranks_r2i = []
+    for i in range(num_samples_extracted):
+        d = torch.argsort(sims_r2i[i], descending=True)
+        rank = (d == i).nonzero(as_tuple=True)[0].item()
+        ranks_r2i.append(rank + 1)
+        
+    ranks_r2i = np.array(ranks_r2i)
+    print("\n" + "="*40)
+    print(" TEST RESULTS: RECIPE-TO-IMAGE (recipe2im) ")
+    print("="*40)
+    print(f" Median Rank (MedR) : {np.median(ranks_r2i):.1f}")
+    print(f" Recall@1  (R@1)    : {100.0 * len(ranks_r2i[ranks_r2i <= 1]) / num_samples_extracted:.2f}%")
+    print(f" Recall@5  (R@5)    : {100.0 * len(ranks_r2i[ranks_r2i <= 5]) / num_samples_extracted:.2f}%")
+    print(f" Recall@10 (R@10)   : {100.0 * len(ranks_r2i[ranks_r2i <= 10]) / num_samples_extracted:.2f}%")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Evaluate Im2Recipe Model')
